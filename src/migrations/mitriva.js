@@ -211,6 +211,13 @@ async function applyMitrivaMigration() {
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
+    // A new managed database has no migration ledger yet; create it before
+    // recording this additive Mitriva schema migration.
+    await conn.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
+      migration_name VARCHAR(255) NOT NULL,
+      applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+      PRIMARY KEY (migration_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     await conn.query('SET FOREIGN_KEY_CHECKS = 0');
     for (const sql of statements) await conn.query(sql);
     await conn.execute('INSERT IGNORE INTO schema_migrations (migration_name) VALUES (?)', [migrationName]);
