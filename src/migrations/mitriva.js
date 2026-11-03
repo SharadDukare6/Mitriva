@@ -250,13 +250,14 @@ async function seedDemoProfiles(conn) {
         const firstName = names[index];
         const seed = `${city.toLowerCase()}-${gender.toLowerCase()}-${index + 1}`;
         const id = demoUserId(seed);
-        const displayName = `${firstName} · Demo`;
+        const displayName = `${firstName} (Demo)`;
         const email = `mitriva.demo.${seed}@example.invalid`;
         const interests = JSON.stringify(index % 2 ? ['Travel','Music','Food'] : ['Books','Movies','Coffee']);
         await conn.execute(`INSERT IGNORE INTO mtr_users(id,email,is_phone_verified,auth_provider,status,role,last_active_at)
           VALUES(?,?,1,'demo','active','demo',UTC_TIMESTAMP(6))`, [id, email]);
-        await conn.execute(`INSERT IGNORE INTO mtr_user_profiles(user_id,display_name,birth_date,gender,city,city_id,profession,bio,interests_json,is_profile_complete,verified)
-          VALUES(?,?,?, ?,?,?,?, ?,?,1,0)`, [
+        await conn.execute(`INSERT INTO mtr_user_profiles(user_id,display_name,birth_date,gender,city,city_id,profession,bio,interests_json,is_profile_complete,verified)
+          VALUES(?,?,?, ?,?,?,?, ?,?,1,0)
+          ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),city=VALUES(city),city_id=VALUES(city_id),profession=VALUES(profession),bio=VALUES(bio),interests_json=VALUES(interests_json),is_profile_complete=1,verified=0`, [
           id, displayName, `199${(cityIndex + index) % 10}-0${(index % 8) + 1}-15`, gender, city, cityId,
           index % 2 ? 'Designer' : 'Engineer',
           `AI demo profile for Mitriva testing only — not a real member.`, interests
