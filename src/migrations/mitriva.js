@@ -4,6 +4,22 @@ const { getPool } = require('../db');
 
 const migrationName = '20260929_mitriva_001_prefixed_schema';
 
+// Canonical cities used by registration and city-based discovery. This runs on every
+// bootstrap so a previously-created empty database is repaired automatically.
+const citySeed = [
+  [1001,'Pune','Maharashtra'],[1002,'Mumbai','Maharashtra'],[1003,'Nagpur','Maharashtra'],[1004,'Nashik','Maharashtra'],[1005,'Thane','Maharashtra'],[1006,'Aurangabad','Maharashtra'],[1007,'Kolhapur','Maharashtra'],[1008,'Solapur','Maharashtra'],
+  [1101,'Delhi','Delhi'],[1102,'New Delhi','Delhi'],[1103,'Gurugram','Haryana'],[1104,'Noida','Uttar Pradesh'],[1105,'Faridabad','Haryana'],[1106,'Ghaziabad','Uttar Pradesh'],
+  [1201,'Bengaluru','Karnataka'],[1202,'Mysuru','Karnataka'],[1203,'Mangaluru','Karnataka'],[1204,'Hubballi','Karnataka'],
+  [1301,'Hyderabad','Telangana'],[1302,'Warangal','Telangana'],[1303,'Secunderabad','Telangana'],
+  [1401,'Chennai','Tamil Nadu'],[1402,'Coimbatore','Tamil Nadu'],[1403,'Madurai','Tamil Nadu'],[1404,'Tiruchirappalli','Tamil Nadu'],[1405,'Salem','Tamil Nadu'],
+  [1501,'Kolkata','West Bengal'],[1502,'Howrah','West Bengal'],[1503,'Siliguri','West Bengal'],[1504,'Durgapur','West Bengal'],
+  [1601,'Ahmedabad','Gujarat'],[1602,'Surat','Gujarat'],[1603,'Vadodara','Gujarat'],[1604,'Rajkot','Gujarat'],[1605,'Gandhinagar','Gujarat'],
+  [1701,'Jaipur','Rajasthan'],[1702,'Jodhpur','Rajasthan'],[1703,'Udaipur','Rajasthan'],[1704,'Kota','Rajasthan'],
+  [1801,'Lucknow','Uttar Pradesh'],[1802,'Kanpur','Uttar Pradesh'],[1803,'Agra','Uttar Pradesh'],[1804,'Varanasi','Uttar Pradesh'],[1805,'Prayagraj','Uttar Pradesh'],[1806,'Meerut','Uttar Pradesh'],
+  [1901,'Bhopal','Madhya Pradesh'],[1902,'Indore','Madhya Pradesh'],[1903,'Jabalpur','Madhya Pradesh'],[1904,'Gwalior','Madhya Pradesh'],
+  [2001,'Patna','Bihar'],[2002,'Ranchi','Jharkhand'],[2003,'Bhubaneswar','Odisha'],[2004,'Guwahati','Assam'],[2005,'Chandigarh','Chandigarh'],[2006,'Kochi','Kerala'],[2007,'Thiruvananthapuram','Kerala'],[2008,'Visakhapatnam','Andhra Pradesh'],[2009,'Vijayawada','Andhra Pradesh'],[2010,'Amritsar','Punjab'],[2011,'Ludhiana','Punjab'],[2012,'Dehradun','Uttarakhand']
+];
+
 const statements = [
 `CREATE TABLE IF NOT EXISTS mtr_users (
   id CHAR(36) NOT NULL,
@@ -199,6 +215,16 @@ const statements = [
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
 ];
 
+async function seedCities(conn) {
+  for (const [id, name, state] of citySeed) {
+    await conn.execute(
+      `INSERT INTO mtr_city_master(id,name,state,country,search_key,active) VALUES(?,?,?,'India',?,1)
+       ON DUPLICATE KEY UPDATE name=VALUES(name),state=VALUES(state),country=VALUES(country),search_key=VALUES(search_key),active=1`,
+      [id, name, state, `${name} ${state}`.toLowerCase()]
+    );
+  }
+}
+
 async function tableExists(conn, tableName) {
   const [rows] = await conn.execute(
     `SELECT COUNT(*) AS count FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
@@ -220,6 +246,7 @@ async function applyMitrivaMigration() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     await conn.query('SET FOREIGN_KEY_CHECKS = 0');
     for (const sql of statements) await conn.query(sql);
+    await seedCities(conn);
     await conn.execute('INSERT IGNORE INTO schema_migrations (migration_name) VALUES (?)', [migrationName]);
     const required = ['mtr_users','mtr_city_master','mtr_user_profiles','mtr_user_preferences','mtr_user_locations','mtr_user_photos','mtr_user_interactions','mtr_matches','mtr_messages','mtr_auth_sessions'];
     const missing=[];
