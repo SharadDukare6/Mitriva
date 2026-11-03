@@ -67,18 +67,23 @@ router.post('/auth/otp/request', async (req,res,next)=>{ try{
   const reviewPhone=normalizePhone(process.env.MITRIVA_PLAY_REVIEW_PHONE);
   const reviewOtp=String(process.env.MITRIVA_PLAY_REVIEW_OTP||'').trim();
   const isPlayReview=process.env.MITRIVA_PLAY_REVIEW_ENABLED==='true'&&phone===reviewPhone&&/^\d{6}$/.test(reviewOtp);
+  // Fixed OTP is deliberately limited to approved tester numbers and only when
+  // a test build explicitly requests developer mode. It can never unlock public accounts.
+  const testOtp=String(process.env.MITRIVA_TEST_OTP||'').trim();
+  const testPhones=String(process.env.MITRIVA_TEST_OTP_PHONES||'').split(',').map(normalizePhone).filter(Boolean);
+  const isApprovedTester=req.body.developerMode===true&&/^\d{6}$/.test(testOtp)&&testPhones.includes(phone);
   const [u]=await getPool().execute('SELECT id FROM mtr_users WHERE phone_e164=? AND deleted_at IS NULL LIMIT 1',[phone]);
   if(!shouldCreate&&!u.length&&!isPlayReview) fail('No Mitriva account exists for this mobile number',404,'ACCOUNT_NOT_FOUND');
-  const otp=isPlayReview?reviewOtp:(String(process.env.MITRIVA_TEST_OTP||'').trim() || String(Math.floor(Math.random()*1000000)).padStart(6,'0'));
+  const otp=isPlayReview?reviewOtp:(isApprovedTester?testOtp:String(Math.floor(Math.random()*1000000)).padStart(6,'0'));
   await getPool().execute(`INSERT INTO mtr_otp_codes(phone_e164,otp_hash,purpose,expires_at) VALUES(?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 10 MINUTE))`,[phone,sha256(otp),shouldCreate?'register':'login']);
   await getPool().execute('INSERT INTO mtr_otp_request_logs(phone_e164,ip_address) VALUES(?,?)',[phone,req.ip||null]);
-  if(!isPlayReview&&!process.env.MITRIVA_TEST_OTP){
+  if(!isPlayReview&&!isApprovedTester){
     const authkey=process.env.MSG91_AUTH_KEY||'', template=process.env.MSG91_TEMPLATE_ID||''; if(!authkey||!template) fail('SMS provider is not configured',503,'SMS_NOT_CONFIGURED');
     const variable=process.env.MSG91_OTP_VARIABLE||'OTP'; const rec={mobiles:phone}; rec[variable]=otp;
     const response=await fetch('https://control.msg91.com/api/v5/flow',{method:'POST',headers:{accept:'application/json',authkey,'content-type':'application/json'},body:JSON.stringify({template_id:template,realTimeResponse:'1',recipients:[rec]})});
     if(!response.ok) fail('Unable to send verification code',502,'SMS_SEND_FAILED');
   }
-  res.json({success:true,message:process.env.MITRIVA_TEST_OTP?'Development verification code ready':'Verification code sent',expiresInSeconds:600,...(process.env.MITRIVA_TEST_OTP?{debugOtp:otp}:{})});
+  res.json({success:true,message:isApprovedTester?'Test verification code ready':'Verification code sent',expiresInSeconds:600,...(isApprovedTester?{debugOtp:otp}:{})});
 }catch(e){next(e)} });
 
 router.post('/auth/otp/verify', async (req,res,next)=>{ try{
