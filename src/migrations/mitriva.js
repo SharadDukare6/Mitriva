@@ -171,6 +171,20 @@ const statements = [
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), PRIMARY KEY(user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+`CREATE TABLE IF NOT EXISTS mtr_billing_subscriptions (
+  id CHAR(36) NOT NULL, user_id CHAR(36) NOT NULL, plan_code VARCHAR(20) NOT NULL,
+  amount_paise INT NOT NULL, razorpay_id VARCHAR(90) NULL, status VARCHAR(32) NOT NULL DEFAULT 'creating',
+  last_payment_id VARCHAR(90) NULL, ends_at DATETIME(6) NULL, auto_renew TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY(id), UNIQUE KEY uq_mtr_billing_remote(razorpay_id), KEY idx_mtr_billing_user(user_id,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+`CREATE TABLE IF NOT EXISTS mtr_billing_webhooks (
+  event_id VARCHAR(120) NOT NULL, razorpay_id VARCHAR(90) NOT NULL,
+  event_name VARCHAR(90) NOT NULL, processed_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY(event_id), KEY idx_mtr_billing_webhook_sub(razorpay_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 `CREATE TABLE IF NOT EXISTS mtr_daily_entitlement_usage (
   user_id CHAR(36) NOT NULL, usage_date DATE NOT NULL, likes_used INT NOT NULL DEFAULT 0,
   super_likes_used INT NOT NULL DEFAULT 0, rewinds_used INT NOT NULL DEFAULT 0,

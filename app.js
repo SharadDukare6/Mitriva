@@ -11,6 +11,7 @@ const { Server } = require('socket.io');
 const { corsOptions } = require('./src/config');
 const { applyMitrivaMigration } = require('./src/migrations/mitriva');
 const mitrivaRouter = require('./src/routes/mitriva');
+const { router: billingRouter, webhook: razorpayWebhook } = require('./src/billing/razorpay');
 const { configureMitrivaSocket } = require('./src/realtime/mitrivaSocket');
 
 const state = { state: 'starting', error: null };
@@ -22,6 +23,8 @@ app.disable('x-powered-by');
 app.use(helmet());
 app.use(compression());
 app.use(cors(corsOptions));
+app.post(base + '/billing/webhooks/razorpay',
+  express.raw({ type: 'application/json', limit: '256kb' }), razorpayWebhook);
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: false, limit: '12mb' }));
 app.use('/public', express.static(path.join(__dirname, 'public')));
@@ -49,6 +52,7 @@ function requireReady(_req, res, next) {
 app.get('/', (_req, res) => res.json({ ...healthPayload(), base, version: '1.0.4' }));
 app.get('/health', (_req, res) => res.status(state.state === 'failed' ? 503 : 200).json(healthPayload()));
 app.get(base + '/system/bootstrap-status', (_req, res) => res.status(state.state === 'ready' ? 200 : 503).json(healthPayload()));
+app.use(base + '/billing', requireReady, billingRouter);
 app.use(base, requireReady, mitrivaRouter);
 
 app.use((req, res) => res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Route not found: ' + req.method + ' ' + req.originalUrl }));

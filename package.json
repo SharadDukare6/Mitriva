@@ -10,7 +10,8 @@
   "scripts": {
     "build": "node -e \"console.log('Mitriva API build complete')\"",
     "start": "node app.js",
-    "check": "node --check app.js && node --check src/routes/mitriva.js && node --check src/migrations/mitriva.js && node --check src/mitrivaAuth.js && node --check src/realtime/mitrivaSocket.js"
+    "check": "node --check app.js && node --check src/billing/razorpay.js && node --check src/routes/mitriva.js && node --check src/migrations/mitriva.js && node --check src/mitrivaAuth.js && node --check src/realtime/mitrivaSocket.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "compression": "^1.8.1",
