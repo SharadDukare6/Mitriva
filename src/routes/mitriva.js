@@ -83,18 +83,48 @@ router.post('/auth/otp/request', async (req,res,next)=>{ try{
   // a test build explicitly requests developer mode. It can never unlock public accounts.
   const testOtp=String(process.env.MITRIVA_TEST_OTP||'').trim();
   const testPhones=String(process.env.MITRIVA_TEST_OTP_PHONES||'').split(',').map(normalizePhone).filter(Boolean);
-  const isApprovedTester=req.body.developerMode===true&&/^\d{6}$/.test(testOtp)&&testPhones.includes(phone);
+  const isApprovedTester=process.env.NODE_ENV==='development'&&process.env.MITRIVA_TEST_OTP_ENABLED==='true'&&req.body.developerMode===true&&/^\d{6}$/.test(testOtp)&&testPhones.includes(phone);
   const [u]=await getPool().execute('SELECT id FROM mtr_users WHERE phone_e164=? AND deleted_at IS NULL LIMIT 1',[phone]);
   if(!shouldCreate&&!u.length&&!isPlayReview) fail('No Mitriva account exists for this mobile number',404,'ACCOUNT_NOT_FOUND');
-  const otp=isPlayReview?reviewOtp:(isApprovedTester?testOtp:String(Math.floor(Math.random()*1000000)).padStart(6,'0'));
-  await getPool().execute(`INSERT INTO mtr_otp_codes(phone_e164,otp_hash,purpose,expires_at) VALUES(?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 10 MINUTE))`,[phone,sha256(otp),shouldCreate?'register':'login']);
-  await getPool().execute('INSERT INTO mtr_otp_request_logs(phone_e164,ip_address) VALUES(?,?)',[phone,req.ip||null]);
+  const otp=isPlayReview?reviewOtp:(isApprovedTester?testOtp:String(crypto.randomInt(0,1000000)).padStart(6,'0'));
+  const pool=getPool();
   if(!isPlayReview&&!isApprovedTester){
-    const authkey=process.env.MSG91_AUTH_KEY||'', template=process.env.MSG91_TEMPLATE_ID||''; if(!authkey||!template) fail('SMS provider is not configured',503,'SMS_NOT_CONFIGURED');
-    const variable=process.env.MSG91_OTP_VARIABLE||'OTP'; const rec={mobiles:phone}; rec[variable]=otp;
-    const response=await fetch('https://control.msg91.com/api/v5/flow',{method:'POST',headers:{accept:'application/json',authkey,'content-type':'application/json'},body:JSON.stringify({template_id:template,realTimeResponse:'1',recipients:[rec]})});
-    if(!response.ok) fail('Unable to send verification code',502,'SMS_SEND_FAILED');
+    // Mitriva's Play launch is India-only. Never attempt SMS delivery to malformed numbers.
+    if(!/^91[6-9]\d{9}$/.test(phone)) fail('Enter a valid Indian mobile number',400,'INVALID_PHONE');
+    const authkey=String(process.env.MSG91_AUTH_KEY||'').trim();
+    const template=String(process.env.MSG91_TEMPLATE_ID||'').trim();
+    if(!authkey||!template) fail('SMS provider is not configured',503,'SMS_NOT_CONFIGURED');
+    const ip=String(req.ip||'').slice(0,64);
+    const [[perMinute],[perHour],[perIp]] = await Promise.all([
+      pool.execute('SELECT COUNT(*) AS total FROM mtr_otp_request_logs WHERE phone_e164=? AND requested_at>DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 60 SECOND)',[phone]),
+      pool.execute('SELECT COUNT(*) AS total FROM mtr_otp_request_logs WHERE phone_e164=? AND requested_at>DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 HOUR)',[phone]),
+      pool.execute('SELECT COUNT(*) AS total FROM mtr_otp_request_logs WHERE ip_address=? AND requested_at>DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 HOUR)',[ip])
+    ]);
+    if(Number(perMinute[0]?.total||0)>0 || Number(perHour[0]?.total||0)>=5 || Number(perIp[0]?.total||0)>=20)
+      fail('Too many code requests. Please try again later.',429,'OTP_RATE_LIMITED');
+    // Record attempts before sending so rejected requests cannot be retried indefinitely.
+    await pool.execute('INSERT INTO mtr_otp_request_logs(phone_e164,ip_address) VALUES(?,?)',[phone,ip]);
+    const variable=String(process.env.MSG91_OTP_VARIABLE||'num').trim();
+    const rec={mobiles:phone}; rec[variable]=otp;
+    let response;
+    try {
+      response=await fetch('https://control.msg91.com/api/v5/flow',{
+        method:'POST',
+        headers:{accept:'application/json',authkey,'content-type':'application/json'},
+        body:JSON.stringify({template_id:template,realTimeResponse:'1',recipients:[rec]}),
+        signal:AbortSignal.timeout(12000)
+      });
+    } catch (_) { fail('SMS service is temporarily unavailable',502,'SMS_PROVIDER_UNAVAILABLE'); }
+    let result;
+    try { result=await response.json(); } catch (_) { fail('SMS provider returned an invalid response',502,'SMS_PROVIDER_RESPONSE'); }
+    // MSG91 can report failures in a 200 HTTP response. Do not issue a usable code on failure.
+    if(!response.ok || String(result?.type||'').toLowerCase()!=='success')
+      fail('Unable to send verification code',502,'SMS_SEND_FAILED');
+  } else {
+    await pool.execute('INSERT INTO mtr_otp_request_logs(phone_e164,ip_address) VALUES(?,?)',[phone,req.ip||null]);
   }
+  // Only a provider-accepted SMS (or explicitly configured reviewer/test login) may create a challenge.
+  await pool.execute(`INSERT INTO mtr_otp_codes(phone_e164,otp_hash,purpose,expires_at) VALUES(?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 10 MINUTE))`,[phone,sha256(otp),shouldCreate?'register':'login']);
   res.json({success:true,message:isApprovedTester?'Test verification code ready':'Verification code sent',expiresInSeconds:600,...(isApprovedTester?{debugOtp:otp}:{})});
 }catch(e){next(e)} });
 
