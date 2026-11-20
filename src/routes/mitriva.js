@@ -104,14 +104,20 @@ router.post('/auth/otp/request', async (req,res,next)=>{ try{
       fail('Too many code requests. Please try again later.',429,'OTP_RATE_LIMITED');
     // Record attempts before sending so rejected requests cannot be retried indefinitely.
     await pool.execute('INSERT INTO mtr_otp_request_logs(phone_e164,ip_address) VALUES(?,?)',[phone,ip]);
-    const variable=String(process.env.MSG91_OTP_VARIABLE||'num').trim();
-    const rec={mobiles:phone}; rec[variable]=otp;
+    // MSG91 OTP templates use SendOTP, not the SMS Flow endpoint.
+    // Supply the exact server-generated OTP so the hash stored below matches the SMS.
+    const otpUrl=new URL('https://control.msg91.com/api/v5/otp');
+    otpUrl.searchParams.set('template_id',template);
+    otpUrl.searchParams.set('mobile',phone);
+    otpUrl.searchParams.set('otp',otp);
+    otpUrl.searchParams.set('otp_length','6');
+    otpUrl.searchParams.set('otp_expiry','10');
+    otpUrl.searchParams.set('realTimeResponse','1');
     let response;
     try {
-      response=await fetch('https://control.msg91.com/api/v5/flow',{
+      response=await fetch(otpUrl,{
         method:'POST',
         headers:{accept:'application/json',authkey,'content-type':'application/json'},
-        body:JSON.stringify({template_id:template,realTimeResponse:'1',recipients:[rec]}),
         signal:AbortSignal.timeout(12000)
       });
     } catch (_) { fail('SMS service is temporarily unavailable',502,'SMS_PROVIDER_UNAVAILABLE'); }
