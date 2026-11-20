@@ -278,7 +278,7 @@ async function seedDemoProfiles(conn) {
         ]);
         await conn.execute(`INSERT IGNORE INTO mtr_user_preferences(user_id,interested_in,relationship_goal,discovery_relationship_goal,minimum_age,maximum_age,distance_km)
           VALUES(?,'Everyone','Any','Any',18,80,200)`, [id]);
-        await conn.execute(`INSERT IGNORE INTO mtr_user_settings(user_id,profile_visible) VALUES(?,1)`, [id]);
+        await conn.execute(`INSERT INTO mtr_user_settings(user_id,profile_visible) VALUES(?,0) ON DUPLICATE KEY UPDATE profile_visible=0`, [id]);
         await conn.execute(`INSERT INTO mtr_user_locations(user_id,latitude,longitude,city,city_id,accuracy_m)
           VALUES(?,?,?,?,?,25) ON DUPLICATE KEY UPDATE latitude=VALUES(latitude),longitude=VALUES(longitude),city=VALUES(city),city_id=VALUES(city_id)`,
           [id, latitude + (index * 0.002), longitude + (index * 0.002), city, cityId]);

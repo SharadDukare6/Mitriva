@@ -10,6 +10,7 @@ const helmet = require('helmet');
 const { Server } = require('socket.io');
 const { corsOptions } = require('./src/config');
 const { applyMitrivaMigration } = require('./src/migrations/mitriva');
+const { runLaunchProvisioning } = require('./src/launchProvision');
 const mitrivaRouter = require('./src/routes/mitriva');
 const { router: billingRouter, webhook: razorpayWebhook } = require('./src/billing/razorpay');
 const { configureMitrivaSocket } = require('./src/realtime/mitrivaSocket');
@@ -79,6 +80,12 @@ async function bootstrap() {
   state.state = 'migrating';
   try {
     await applyMitrivaMigration();
+    try {
+      await runLaunchProvisioning();
+    } catch (provisionError) {
+      // A QA/owner provisioning error must not take the public API offline.
+      console.error('[Mitriva launch provisioning] failed:', provisionError);
+    }
     state.state = 'ready';
     state.error = null;
     console.log('[Mitriva] standalone database bootstrap ready.');
